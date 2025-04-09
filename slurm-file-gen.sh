@@ -42,19 +42,19 @@ function get_partitions() {
 function get_resources() {
     local partition=$1
     echo "Fetching resources for partition: $partition"
-    
+
     # Get maximum nodes available in the partition
     MAX_NODES=$(sinfo -h -p $partition -o "%D" | sort -nr | head -n1)
-    
+
     # Get CPUs per node
     CPUS_PER_NODE=$(sinfo -h -p $partition -o "%c" | sort -nr | head -n1)
-    
+
     # Get memory per node
     MEM_PER_NODE=$(sinfo -h -p $partition -o "%m" | sort -nr | head -n1)
-    
+
     # Get maximum time limit
     TIME_LIMIT=$(sinfo -h -p $partition -o "%l" | head -n1)
-    
+
     echo "  - Maximum nodes: $MAX_NODES"
     echo "  - CPUs per node: $CPUS_PER_NODE"
     echo "  - Memory per node: $MEM_PER_NODE MB"
@@ -70,16 +70,16 @@ function select_partition() {
         echo "  $i) $p"
         i=$((i+1))
     done
-    
+
     echo
     read -p "Select partition [1-$((i-1))]: " PARTITION_INDEX
-    
+
     if ! [[ "$PARTITION_INDEX" =~ ^[0-9]+$ ]] || [ "$PARTITION_INDEX" -lt 1 ] || [ "$PARTITION_INDEX" -gt $((i-1)) ]; then
         echo "Invalid selection. Please try again."
         select_partition
         return
     fi
-    
+
     # Convert selection to partition name
     local j=1
     for p in $PARTITIONS; do
@@ -89,7 +89,7 @@ function select_partition() {
         fi
         j=$((j+1))
     done
-    
+
     # Get resources for selected partition
     get_resources $SELECTED_PARTITION
 }
@@ -98,30 +98,30 @@ function select_partition() {
 function get_job_specs() {
     # Job name
     read -p "Enter job name: " JOB_NAME
-    
+
     # Number of nodes
     read -p "Enter number of nodes [1-$MAX_NODES]: " NUM_NODES
     if ! [[ "$NUM_NODES" =~ ^[0-9]+$ ]] || [ "$NUM_NODES" -lt 1 ] || [ "$NUM_NODES" -gt "$MAX_NODES" ]; then
         echo "Invalid number of nodes. Setting to 1."
         NUM_NODES=1
     fi
-    
+
     # Tasks per node
     read -p "Enter tasks per node [1-$CPUS_PER_NODE]: " TASKS_PER_NODE
     if ! [[ "$TASKS_PER_NODE" =~ ^[0-9]+$ ]] || [ "$TASKS_PER_NODE" -lt 1 ] || [ "$TASKS_PER_NODE" -gt "$CPUS_PER_NODE" ]; then
         echo "Invalid number of tasks per node. Setting to 1."
         TASKS_PER_NODE=1
     fi
-    
+
     # Time limit
     read -p "Enter time limit (format: HH:MM:SS or D-HH:MM:SS): " TIME_LIMIT_INPUT
-    
+
     # Output file
     read -p "Enter output file name [default: slurm-%j.out]: " OUTPUT_FILE
     if [ -z "$OUTPUT_FILE" ]; then
         OUTPUT_FILE="slurm-%j.out"
     fi
-    
+
     # Email notifications
     read -p "Do you want email notifications? (y/n): " EMAIL_NOTIFY
     if [[ "$EMAIL_NOTIFY" =~ ^[Yy]$ ]]; then
@@ -131,8 +131,10 @@ function get_job_specs() {
             NOTIFY_TYPES="END,FAIL"
         fi
     fi
-    
-    
+
+}
+
+function get_commands() {
     # Command to run
     echo "Enter the command(s) to run (Ctrl+D to finish):"
     COMMANDS=$(cat)
@@ -262,9 +264,9 @@ function get_job_specs_extra() {
 # Function to generate the Slurm script
 function generate_script() {
     SCRIPT_NAME="${JOB_NAME:-job}_slurm.sh"
-    
+
     echo "Generating Slurm script: $SCRIPT_NAME"
-    
+
     cat > "$SCRIPT_NAME" << EOL
 #!/bin/bash
 #SBATCH --job-name=${JOB_NAME:-job}
@@ -278,13 +280,13 @@ EOL
     if [ ! -z "$TIME_LIMIT_INPUT" ]; then
         echo "#SBATCH --time=${TIME_LIMIT_INPUT}" >> "$SCRIPT_NAME"
     fi
-    
+
     # Add email notifications if requested
     if [[ "$EMAIL_NOTIFY" =~ ^[Yy]$ ]]; then
         echo "#SBATCH --mail-user=${EMAIL_ADDRESS}" >> "$SCRIPT_NAME"
         echo "#SBATCH --mail-type=${NOTIFY_TYPES}" >> "$SCRIPT_NAME"
     fi
-    
+
     # Add standard header
     cat >> "$SCRIPT_NAME" << EOL
 
@@ -301,17 +303,17 @@ EOL
         if [ ! -z "$MEM_REQUEST" ] && [ "$MEM_REQUEST" != "NULL" ]; then
             echo "#SBATCH --mem=${MEM_REQUEST}" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add constraints if specified
         if [ ! -z "$CONSTRAINTS" ]; then
             echo "#SBATCH --constraint=${CONSTRAINTS}" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add exclusive flag if requested
         if [[ "$EXCLUSIVE" =~ ^[Yy]$ ]]; then
             echo "#SBATCH --exclusive" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add GPU resources if requested
         if [[ "$NEED_GPUS" =~ ^[Yy]$ ]]; then
             if [ ! -z "$GPUS_PER_NODE" ]; then
@@ -321,32 +323,32 @@ EOL
                 echo "#SBATCH --gres=gpu:${GPU_TYPE}:${GPUS_PER_NODE:-1}" >> "$SCRIPT_NAME"
             fi
         fi
-        
+
         # Add CPU architecture if specified
         if [[ "$SPECIFIC_CPU" =~ ^[Yy]$ ]] && [ ! -z "$CPU_ARCH" ]; then
             echo "#SBATCH --constraint=${CPU_ARCH}" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add account if specified
         if [[ "$USE_ACCOUNT" =~ ^[Yy]$ ]] && [ ! -z "$ACCOUNT_NAME" ]; then
             echo "#SBATCH --account=${ACCOUNT_NAME}" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add QOS if specified
         if [[ "$USE_QOS" =~ ^[Yy]$ ]] && [ ! -z "$QOS_NAME" ]; then
             echo "#SBATCH --qos=${QOS_NAME}" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add array job if specified
         if [[ "$ARRAY_JOB" =~ ^[Yy]$ ]] && [ ! -z "$ARRAY_INDICES" ]; then
             echo "#SBATCH --array=${ARRAY_INDICES}" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add dependency if specified
         if [[ "$USE_DEPENDENCY" =~ ^[Yy]$ ]] && [ ! -z "$DEPENDENCY" ]; then
             echo "#SBATCH --dependency=${DEPENDENCY}" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add modules to load
         if [[ "$LOAD_MODULES" =~ ^[Yy]$ ]] && [ ! -z "$MODULES" ]; then
             echo -e "\n# Load modules" >> "$SCRIPT_NAME"
@@ -354,7 +356,7 @@ EOL
         else
             echo -e "\n# Load modules\n# module load <module_name>" >> "$SCRIPT_NAME"
         fi
-        
+
         # Add environment variables
         if [[ "$SET_ENV_VARS" =~ ^[Yy]$ ]] && [ ! -z "$ENV_VARS" ]; then
             echo -e "\n# Set environment variables" >> "$SCRIPT_NAME"
@@ -366,13 +368,13 @@ EOL
         echo -e "\n# Load modules\n# module load <module_name>" >> "$SCRIPT_NAME"
         echo -e "\n# Set environment variables\n# export VAR=value" >> "$SCRIPT_NAME"
     fi
-    
+
     echo "" >> "$SCRIPT_NAME"
 
     # Add user commands
     echo "# User commands" >> "$SCRIPT_NAME"
     echo "$COMMANDS" >> "$SCRIPT_NAME"
-    
+
     # Add footer
     cat >> "$SCRIPT_NAME" << EOL
 
@@ -382,7 +384,7 @@ EOL
 
     # Make the script executable
     chmod +x "$SCRIPT_NAME"
-    
+
     echo "Script generated successfully: $SCRIPT_NAME"
     echo "You can submit your job with: sbatch $SCRIPT_NAME"
 }
@@ -397,5 +399,7 @@ get_job_specs
 if [ "$EXTRA_MODE" = true ]; then
     get_job_specs_extra
 fi
+
+get_commands
 
 generate_script
