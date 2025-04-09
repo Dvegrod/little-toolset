@@ -7,6 +7,17 @@
 #
 # Date: April 8, 2025
 
+# Parse command line arguments
+EXTRA_MODE=false
+for arg in "$@"; do
+    case $arg in
+        -e|--extra)
+            EXTRA_MODE=true
+            shift
+            ;;
+    esac
+done
+
 # Function to display script header
 function display_header() {
     clear
@@ -260,7 +271,6 @@ function generate_script() {
 #SBATCH --partition=${SELECTED_PARTITION}
 #SBATCH --nodes=${NUM_NODES:-1}
 #SBATCH --ntasks-per-node=${TASKS_PER_NODE:-1}
-#SBATCH --mem=${MEM_REQUEST:-1000}
 #SBATCH --output=${OUTPUT_FILE:-slurm-%j.out}
 EOL
 
@@ -283,13 +293,81 @@ echo "Job ID: \$SLURM_JOB_ID"
 echo "Nodes: \$SLURM_JOB_NODELIST"
 echo "----------------------------------------------------------------"
 
-# Load modules
-# module load <module_name>
-
-# Set environment variables
-# export VAR=value
-
 EOL
+
+    # Add advanced options if they were specified
+    if [ "$EXTRA_MODE" = true ]; then
+        # Add memory if specified
+        if [ ! -z "$MEM_REQUEST" ] && [ "$MEM_REQUEST" != "NULL" ]; then
+            echo "#SBATCH --mem=${MEM_REQUEST}" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add constraints if specified
+        if [ ! -z "$CONSTRAINTS" ]; then
+            echo "#SBATCH --constraint=${CONSTRAINTS}" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add exclusive flag if requested
+        if [[ "$EXCLUSIVE" =~ ^[Yy]$ ]]; then
+            echo "#SBATCH --exclusive" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add GPU resources if requested
+        if [[ "$NEED_GPUS" =~ ^[Yy]$ ]]; then
+            if [ ! -z "$GPUS_PER_NODE" ]; then
+                echo "#SBATCH --gpus-per-node=${GPUS_PER_NODE}" >> "$SCRIPT_NAME"
+            fi
+            if [ ! -z "$GPU_TYPE" ]; then
+                echo "#SBATCH --gres=gpu:${GPU_TYPE}:${GPUS_PER_NODE:-1}" >> "$SCRIPT_NAME"
+            fi
+        fi
+        
+        # Add CPU architecture if specified
+        if [[ "$SPECIFIC_CPU" =~ ^[Yy]$ ]] && [ ! -z "$CPU_ARCH" ]; then
+            echo "#SBATCH --constraint=${CPU_ARCH}" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add account if specified
+        if [[ "$USE_ACCOUNT" =~ ^[Yy]$ ]] && [ ! -z "$ACCOUNT_NAME" ]; then
+            echo "#SBATCH --account=${ACCOUNT_NAME}" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add QOS if specified
+        if [[ "$USE_QOS" =~ ^[Yy]$ ]] && [ ! -z "$QOS_NAME" ]; then
+            echo "#SBATCH --qos=${QOS_NAME}" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add array job if specified
+        if [[ "$ARRAY_JOB" =~ ^[Yy]$ ]] && [ ! -z "$ARRAY_INDICES" ]; then
+            echo "#SBATCH --array=${ARRAY_INDICES}" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add dependency if specified
+        if [[ "$USE_DEPENDENCY" =~ ^[Yy]$ ]] && [ ! -z "$DEPENDENCY" ]; then
+            echo "#SBATCH --dependency=${DEPENDENCY}" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add modules to load
+        if [[ "$LOAD_MODULES" =~ ^[Yy]$ ]] && [ ! -z "$MODULES" ]; then
+            echo -e "\n# Load modules" >> "$SCRIPT_NAME"
+            echo "$MODULES" >> "$SCRIPT_NAME"
+        else
+            echo -e "\n# Load modules\n# module load <module_name>" >> "$SCRIPT_NAME"
+        fi
+        
+        # Add environment variables
+        if [[ "$SET_ENV_VARS" =~ ^[Yy]$ ]] && [ ! -z "$ENV_VARS" ]; then
+            echo -e "\n# Set environment variables" >> "$SCRIPT_NAME"
+            echo "$ENV_VARS" >> "$SCRIPT_NAME"
+        else
+            echo -e "\n# Set environment variables\n# export VAR=value" >> "$SCRIPT_NAME"
+        fi
+    else
+        echo -e "\n# Load modules\n# module load <module_name>" >> "$SCRIPT_NAME"
+        echo -e "\n# Set environment variables\n# export VAR=value" >> "$SCRIPT_NAME"
+    fi
+    
+    echo "" >> "$SCRIPT_NAME"
 
     # Add user commands
     echo "# User commands" >> "$SCRIPT_NAME"
@@ -314,4 +392,10 @@ display_header
 get_partitions
 select_partition
 get_job_specs
+
+# Only call get_job_specs_extra if --extra or -e flag was passed
+if [ "$EXTRA_MODE" = true ]; then
+    get_job_specs_extra
+fi
+
 generate_script
