@@ -9,10 +9,15 @@
 
 # Parse command line arguments
 EXTRA_MODE=false
+AC_MODE=false
 for arg in "$@"; do
     case $arg in
         -e|--extra)
             EXTRA_MODE=true
+            shift
+            ;;
+        --ac)
+            AC_MODE=true
             shift
             ;;
     esac
@@ -261,6 +266,39 @@ function get_job_specs_extra() {
     fi
 }
 
+# Function to prompt user for account and constraints only
+function get_account_constraints() {
+    echo
+    echo "======= Account & Constraints Options ======="
+    echo
+
+    # Ask if user wants to set constraints
+    read -p "Do you want to specify node constraints/features? (y/n): " USE_CONSTRAINTS
+    if [[ "$USE_CONSTRAINTS" =~ ^[Yy]$ ]]; then
+        # Fetch available constraints from sinfo
+        AVAIL_CONSTRAINTS=$(sinfo -h -o "%f" | grep -v "none" | sort | uniq | tr -s ' ' | tr ' ' ',')
+        if [ ! -z "$AVAIL_CONSTRAINTS" ]; then
+            echo "Available constraints: $AVAIL_CONSTRAINTS"
+            read -p "Enter constraints (comma-separated): " CONSTRAINTS
+        else
+            read -p "Enter constraints (no available constraints detected, enter manually): " CONSTRAINTS
+        fi
+    fi
+
+    # Ask for account information
+    read -p "Do you want to specify an account? (y/n): " USE_ACCOUNT
+    if [[ "$USE_ACCOUNT" =~ ^[Yy]$ ]]; then
+        # Try to get available accounts
+        if command -v sacctmgr &> /dev/null; then
+            USER_ACCOUNTS=$(sacctmgr -n list associations user=$USER format=account | sort | uniq)
+            if [ ! -z "$USER_ACCOUNTS" ]; then
+                echo "Available accounts: $USER_ACCOUNTS"
+            fi
+        fi
+        read -p "Enter account name: " ACCOUNT_NAME
+    fi
+}
+
 # Function to generate the Slurm script
 function generate_script() {
     SCRIPT_NAME="${JOB_NAME:-job}_slurm.sh"
@@ -298,7 +336,7 @@ echo "----------------------------------------------------------------"
 EOL
 
     # Add advanced options if they were specified
-    if [ "$EXTRA_MODE" = true ]; then
+    if [ "$EXTRA_MODE" = true ] || [ "$AC_MODE" = true ]; then
         # Add memory if specified
         if [ ! -z "$MEM_REQUEST" ] && [ "$MEM_REQUEST" != "NULL" ]; then
             echo "#SBATCH --mem=${MEM_REQUEST}" >> "$SCRIPT_NAME"
@@ -395,9 +433,11 @@ get_partitions
 select_partition
 get_job_specs
 
-# Only call get_job_specs_extra if --extra or -e flag was passed
+# Call the appropriate function based on the flags
 if [ "$EXTRA_MODE" = true ]; then
     get_job_specs_extra
+elif [ "$AC_MODE" = true ]; then
+    get_account_constraints
 fi
 
 get_commands
